@@ -1,0 +1,22 @@
+Package: IsoOrbiStats
+Type: Package
+Title: Isotope ratio statistics and evaluation tool for Orbitrap PSIA
+Version: 0.1.0
+Author: Merve Oztoprk
+Maintainer: Merve Oztoprak <merve.oztoprak@nioz.nl>
+Description: Generalized script to evaluate intramolecular isotopic measurements on the Orbitrap platform for Position Specific Isotopic Analysis (PSIA).
+License: GNU General Public License v3.0
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.2.1.9000
+Imports:
+	plyr,
+	dplyr,
+	slider,
+	psych,
+	tidyverse,
+	scales,
+	cowplot,
+	tidyquant,
+	datasets,
+	reshape2
