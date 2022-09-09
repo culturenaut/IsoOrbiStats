@@ -1,1 +1,3 @@
 .Rproj.user
+*.raw
+.DS_Store

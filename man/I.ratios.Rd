@@ -7,10 +7,10 @@ ions.incremental is not = Eiler 2017 NIO calculation!!!
 NL ratio, Nio ratio , Nio weighted ratio
 ONLY WORKS FOR TWO ILOGS!}
 \usage{
-I.ratios(filter.Idata_results)
+I.ratios(x)
 }
 \arguments{
-\item{filter.Idata_results}{results from filter.Idata function}
+\item{x}{results from filter.Idata function}
 }
 \value{
 data frame contains substituted and unsubstituted iostopolog data in columns next to each other with isotope ratios (NOT DEVIDED by #Cs).Negative values after background subtraction are replaced with NA

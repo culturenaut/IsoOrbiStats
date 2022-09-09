@@ -6,18 +6,18 @@
 #------------------
 
 #'function that that will filter ilogs based on exact mass +- mass tolerance mmu, remove duplicate rows assigned to same ilog or rows that dont have all ilogs and add background level column per filename, compound, isotopolog
-#' @param import.Idata_results  result from import.Idata function
-#' @param tolerance = user defined amount of deviation from exact mass (mass defect) permitted in daltons
-#' @return = dataframe only containing scans with mass defect as defined by tolereance value, unique assignment of one isotopolog per defined exact mass,
+#' @param x  result from import.Idata function
+#' @param tolerance user defined amount of deviation from exact mass (mass defect) permitted in daltons
+#' @return dataframe only containing scans with mass defect as defined by tolereance value, unique assignment of one isotopolog per defined exact mass,
 #'including only scan that have all defined isotopologs of interest per scan within peak elution time and background values for each filename,compound, ilog of interest (2 background filter methods)
 #' @examples
 
 #----------------
 #' @export
-filter.Idata <- function (import.Idata_results, tolerance){
+filter.Idata <- function (x, tolerance){
 
   #filter and remove columnes used to filter dataset
-  mdf=importIdata_results[import.Idata_results$"massdefect[da]" <tolerance,] #removes rows with mass deferct larger then defined tolerance value in daltons
+  mdf=x[x$"massdefect[da]" <tolerance,] #removes rows with mass deferct larger then defined tolerance value in daltons
   is=mdf[mdf$rank == "1",] #removes rows assigned in duplicate to same isotopolog (in same scan) by keeping only the one with higher signal intensity
   filtered=is[is$has_all_ilogs == "TRUE",] #removes rows that do not contain the desired number of isotopologs in ilogs object
   filtered=filtered[,c(1:28)]#removes columns used for filtering

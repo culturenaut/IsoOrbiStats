@@ -46,10 +46,10 @@ package.check <- lapply(packages,
 #-------------
 #define function to import data set extracted from raw input using isoX. Use combined.isox file for multiple acquisitions
 
-importIdata <- function(df,ranges,masses,ions,ilogs){
+import.Idata <- function(x,ranges,masses,ions,ilogs){
 
   #reformatting
-  data= df
+  data= x
   colnames(masses)=c("compound","isotopolog","m/z", "tolerance [mmu]", "z")
   data= merge(data,masses[,c(1:3)], by=c("compound","isotopolog")) #append data.frame with exact masses for fragments
   data= merge (data, ranges, by= "filename", all.x=T, all.y=T) #append data.frame with start and end times for acquisition
@@ -91,10 +91,10 @@ importIdata <- function(df,ranges,masses,ions,ilogs){
 
 #define function that will filter ilogs based on exact mass +- mass tolerance mmu, remove duplicate rows assigned to same ilog or rows that dont have all ilogs and add background level column per filename, compound, isotopolog
 
-filter.Idata <- function (import.Idata_results, tolerance){
+filter.Idata <- function (x, tolerance){
 
   #filter and remove columnes used to filter dataset
-  mdf=importIdata_results[import.Idata_results$"massdefect[da]" <tolerance,] #removes rows with mass deferct larger then defined tolerance value in daltons
+  mdf=x[x$"massdefect[da]" <tolerance,] #removes rows with mass deferct larger then defined tolerance value in daltons
   is=mdf[mdf$rank == "1",] #removes rows assigned in duplicate to same isotopolog (in same scan) by keeping only the one with higher signal intensity
   filtered=is[is$has_all_ilogs == "TRUE",] #removes rows that do not contain the desired number of isotopologs in ilogs object
   filtered=filtered[,c(1:28)]#removes columns used for filtering
@@ -140,8 +140,8 @@ filter.Idata <- function (import.Idata_results, tolerance){
 #NL ratio, Nio ratio , Nio weighted ratio
 #ONLY WORKS FOR TWO ILOGS!
 
-I.ratios <- function(filter.Idata_results){
-  data_ratios = filter.Idata_results
+I.ratios <- function(x){
+  data_ratios = x
   data_ratios = data_ratios %>% #split dataframe by filename/compound/isotopologs and combine isotpolgs by matching filename and scan.no to get isotopologs in same row aligned by same scan number and filename
     group_by(filename, compound, isotopolog) %>%
     split(.$isotopolog)%>%
@@ -185,8 +185,8 @@ I.ratios <- function(filter.Idata_results){
 #used to evaluate differnt culling options
 #culled using ticxit
 
-cull.Idata <- function(filter.Idata_results,ratio,it){ #better to do per filename and/or ion of interest b/c output becomes too large background subtracted columns becaome inaccurate because negative values have to be NA
-  data= filter.Idata_results
+cull.Idata <- function(x,cullvalue,ratio,it){ #better to do per filename and/or ion of interest b/c output becomes too large background subtracted columns becaome inaccurate because negative values have to be NA
+  data= x
   options(dplyr.summarise.inform = FALSE)  # Suppress summarise info
   data_0 = data %>%#----
   mutate(filter="no filter")
@@ -195,13 +195,13 @@ cull.Idata <- function(filter.Idata_results,ratio,it){ #better to do per filenam
     group_by(filename, compound) %>%
     summarise(
       filter="no filter",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
   data_it = data %>% #----
   mutate(filter="it") %>%
@@ -211,110 +211,110 @@ cull.Idata <- function(filter.Idata_results,ratio,it){ #better to do per filenam
     group_by(filename, compound) %>%
     summarise(
       filter="it",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
   data_sd1 = data %>% #----
   mutate(filter="sd1") %>%
     group_by(filename, compound) %>%
-    mutate(plus_o=mean(ticxit)+(sd(ticxit)*1), #append group wise column with x+ sigma*level and x- sigma*level
-           minus_o=mean(ticxit)-(sd(ticxit)*1)) %>%
-    filter(ticxit <= plus_o & ticxit >= minus_o) # filter dataset to only include rows that are +- level sigma deviation of Nio
+    mutate(plus_o=mean({{cullvalue}})+(sd({{cullvalue}})*1), #append group wise column with x+ sigma*level and x- sigma*level
+           minus_o=mean({{cullvalue}})-(sd({{cullvalue}})*1)) %>%
+    filter({{cullvalue}} <= plus_o & {{cullvalue}} >= minus_o) # filter dataset to only include rows that are +- level sigma deviation of Nio
   summary_sd1 = data_sd1  %>%
     group_by(filename, compound) %>%
     summarise(
       filter="sd1",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
   data_sd2 = data %>%#----
   mutate(filter="sd2") %>%
     group_by(filename, compound) %>%
-    mutate(plus_o=mean(ticxit)+(sd(ticxit)*2), #append group wise column with x+ sigma*level and x- sigma*level
-           minus_o=mean(ticxit)-(sd(ticxit)*2)) %>%
-    filter(ticxit <= plus_o & ticxit >= minus_o) # filter dataset to only include rows that are +- level sigma deviation of Nio
+    mutate(plus_o=mean({{cullvalue}})+(sd({{cullvalue}})*2), #append group wise column with x+ sigma*level and x- sigma*level
+           minus_o=mean({{cullvalue}})-(sd({{cullvalue}})*2)) %>%
+    filter({{cullvalue}} <= plus_o & {{cullvalue}} >= minus_o) # filter dataset to only include rows that are +- level sigma deviation of Nio
   summary_sd2 = data_sd2  %>%
     group_by(filename, compound) %>%
     summarise(
       filter="sd2",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
 
   data_sd3 = data %>%#----
   mutate(filter="sd3") %>%
     group_by(filename, compound) %>%
-    mutate(plus_o=mean(ticxit)+(sd(ticxit)*3), #append group wise column with x+ sigma*level and x- sigma*level
-           minus_o=mean(ticxit)-(sd(ticxit)*3)) %>%
-    filter(ticxit <= plus_o & ticxit >= minus_o) # filter dataset to only include rows that are +- level sigma deviation of Nio
+    mutate(plus_o=mean({{cullvalue}})+(sd({{cullvalue}})*3), #append group wise column with x+ sigma*level and x- sigma*level
+           minus_o=mean({{cullvalue}})-(sd({{cullvalue}})*3)) %>%
+    filter({{cullvalue}} <= plus_o & {{cullvalue}} >= minus_o) # filter dataset to only include rows that are +- level sigma deviation of Nio
   summary_sd3 = data_sd3  %>%
     group_by(filename, compound) %>%
     summarise(
       filter="sd3",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
 
   data_MAD10 = data %>%#----
   mutate(filter="MAD10") %>%
     group_by(filename, compound) %>%
-    mutate(average= mean(ticxit), # append group wise column with +- MAD level
-           MAD_insidef= abs(ticxit-average),
-           plus_MAD= median(MAD_insidef)+(0.1*median(MAD_insidef)),
-           minus_MAD= median(MAD_insidef)-(0.1*median(MAD_insidef)))%>%
-    filter(ticxit <= plus_MAD & ticxit >= minus_MAD) # filter dataset to only include rows that are +- level MAD deviation of Nio
+    mutate(m= median({{cullvalue}}), # append group wise column with +- MAD level
+           MAD_insidef= abs({{cullvalue}}-m),
+           plus_MAD= median({{cullvalue}})+(0.1*median(MAD_insidef)),
+           minus_MAD= median({{cullvalue}})-(0.1*median(MAD_insidef)))%>%
+    filter({{cullvalue}} <= plus_MAD & {{cullvalue}} >= minus_MAD) # filter dataset to only include rows that are +- level MAD deviation of Nio
   summary_MAD10 = data_MAD10  %>%
     group_by(filename, compound) %>%
     summarise(
       filter="MAD10",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
 
   data_MAD20 = data %>%#----
   mutate(filter="MAD20") %>%
     group_by(filename, compound) %>%
-    mutate(average= mean(ticxit), # append group wise column with +- MAD level
-           MAD_insidef= abs(ticxit-average),
-           plus_MAD= median(MAD_insidef)+(0.2*median(MAD_insidef)),
-           minus_MAD= median(MAD_insidef)-(0.2*median(MAD_insidef)))%>%
-    filter(ticxit <= plus_MAD & ticxit >= minus_MAD) # filter dataset to only include rows that are +- level MAD deviation of Nio
+    mutate(m= median({{cullvalue}}), # append group wise column with +- MAD level
+           MAD_insidef= abs({{cullvalue}}-m),
+           plus_MAD= median({{cullvalue}})+(0.2*median(MAD_insidef)),
+           minus_MAD= median({{cullvalue}})-(0.2*median(MAD_insidef)))%>%
+    filter({{cullvalue}} <= plus_MAD & {{cullvalue}} >= minus_MAD) # filter dataset to only include rows that are +- level MAD deviation of Nio
   summary_MAD20 = data_MAD20  %>%
     group_by(filename, compound) %>%
     summarise(
       filter="MAD20",
-      mean = mean(ratio),
-      median = median(ratio),
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
       n = n(),
-      sd = sd(ratio),
+      sd = sd({{ratio}}),
       se = sd / sqrt(n),
-      RSD= sd(ratio)/mean(ratio)*100,
-      RSE=se/mean(ratio)*100,
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
     )
   #----
   summary_data=rbind(summary_0,summary_it,summary_sd1,summary_sd2,summary_sd3,summary_MAD10,summary_MAD20)
@@ -329,12 +329,38 @@ cull.Idata <- function(filter.Idata_results,ratio,it){ #better to do per filenam
 #output
 #data.frame of isotope ratios divided by number of atoms of interest
 
+#function to calculate average isotope ratios of fragments/ions of interest. I.e. isotope ratio divided by the number of relevant atoms in fragment/ion of interest
+
+avrg.ratios <- function(x,ions,n.atoms){
+  data=x
+  div.factor=data.frame(ions,n.atoms)
+  div.factor=div.factor%>%
+    rename(compound=ions)
+  data_out = data
+  data_out = data_out %>% #divide ratios by number of ataoms of interest
+    left_join(div.factor, by="compound")%>%
+    mutate(across(c("unsub.intensity","sub.intensity",
+                    "unsub.Nio","sub.Nio",
+                    "unsub.Nio_weighted","sub.Nio_weighted",
+                    "unsub.Nio_b.avrg4","sub.Nio_b.avrg4",
+                    "unsub.Nio_b.min20","unsub.Nio_b.min20",
+                    "unsub.Nio_w_b.avrg4","sub.Nio_w_b.avrg4",
+                    "unsub.Nio_w_b.min20","unsub.Nio_w_b.min20",
+                    "NL_ratio","Nio_ratio","Nio_w_ratio",
+                    "Nio_b.avrg4_ratio","Nio_w_b.avrg4_ratio",
+                    "Nio_b.min20_ratio","Nio_w_b.min20_ratio"
+    ),.fns=~./n.atoms))%>%
+    relocate(n.atoms,.after=compound)
+}
+
+#output
+#dataframe with average ratios for each ratio calculated by division of n.atoms in respective fragment/ion
 
 #summary data for different NL ratio calculation options per compound
 #drop NA rows for background subtracted ratios
 #this function is very repetitive have to rewrite summarize with loops
 
-summary.ratios <- function(avrg.ratios_results){
+s.ratios <- function(avrg.ratios_results){
   data = avrg.ratios_results
   NL_ratio = data %>%
     group_by (filename, compound) %>%
@@ -374,18 +400,20 @@ summary.ratios <- function(avrg.ratios_results){
     )
   Nio_b.avrg4_ratio = data %>%
     group_by (filename, compound) %>%
+    drop_na(Nio_b.avrg4_ratio)%>%
     summarise(
       ratio = "Nio_b.avrg4_ratio",
-      mean = mean(Nio_b.avrg4_ratio,na.rm = TRUE),
-      median = median(Nio_b.avrg4_ratio,na.rm = TRUE),
+      mean = mean(Nio_b.avrg4_ratio),
+      median = median(Nio_b.avrg4_ratio),
       n = n(),
-      sd = sd(Nio_b.avrg4_ratio,na.rm = TRUE),
+      sd = sd(Nio_b.avrg4_ratio),
       se = sd / sqrt(n),
-      RSD= sd(Nio_b.avrg4_ratio,na.rm = TRUE)/mean(Nio_b.avrg4_ratio,na.rm = TRUE)*100,
-      RSE=se/mean(Nio_b.avrg4_ratio,na.rm = TRUE)*100
+      RSD= sd(Nio_b.avrg4_ratio)/mean(Nio_b.avrg4_ratio)*100,
+      RSE=se/mean(Nio_b.avrg4_ratio)*100
     )
   Nio_w_b.avrg4_ratio = data %>%
     group_by (filename, compound) %>%
+    drop_na(Nio_w_b.avrg4_ratio)%>%
     summarise(
       ratio = "Nio_w_b.avrg4_ratio",
       mean = mean(Nio_w_b.avrg4_ratio),
@@ -398,18 +426,20 @@ summary.ratios <- function(avrg.ratios_results){
     )
   Nio_b.min20_ratio = data %>%
     group_by (filename, compound) %>%
+    drop_na(Nio_b.min20_ratio)%>%
     summarise(
       ratio = "Nio_b.min20_ratio",
-      mean = mean(Nio_b.min20_ratio,na.rm = TRUE),
-      median = median(Nio_b.min20_ratio,na.rm = TRUE),
+      mean = mean(Nio_b.min20_ratio),
+      median = median(Nio_b.min20_ratio),
       n = n(),
-      sd = sd(Nio_b.min20_ratio,na.rm = TRUE),
+      sd = sd(Nio_b.min20_ratio),
       se = sd / sqrt(n),
-      RSD= sd(Nio_b.min20_ratio,na.rm = TRUE)/mean(Nio_b.min20_ratio,na.rm = TRUE)*100,
-      RSE=se/mean(Nio_b.min20_ratio,na.rm = TRUE)*100
+      RSD= sd(Nio_b.min20_ratio)/mean(Nio_b.min20_ratio)*100,
+      RSE=se/mean(Nio_b.min20_ratio)*100
     )
   Nio_w_b.min20_ratio = data %>%
     group_by (filename, compound) %>%
+    drop_na(Nio_w_b.min20_ratio)%>%
     summarise(
       ratio = "Nio_w_b.min20_ratio",
       mean = mean(Nio_w_b.min20_ratio),

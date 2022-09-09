@@ -9,14 +9,14 @@
 #' ions.incremental is not = Eiler 2017 NIO calculation!!!
 #'NL ratio, Nio ratio , Nio weighted ratio
 #'ONLY WORKS FOR TWO ILOGS!
-#' @param filter.Idata_results results from filter.Idata function
+#' @param x results from filter.Idata function
 #' @return data frame contains substituted and unsubstituted iostopolog data in columns next to each other with isotope ratios (NOT DEVIDED by #Cs).Negative values after background subtraction are replaced with NA
 #' @examples
 
 #-------------
 #' @export
-I.ratios <- function(filter.Idata_results){
-  data_ratios = filter.Idata_results
+I.ratios <- function(x){
+  data_ratios = x
   data_ratios = data_ratios %>% #split dataframe by filename/compound/isotopologs and combine isotpolgs by matching filename and scan.no to get isotopologs in same row aligned by same scan number and filename
     group_by(filename, compound, isotopolog) %>%
     split(.$isotopolog)%>%

@@ -7,20 +7,20 @@
 
 #'function that allows to import data set extracted from raw input using isoX. Use combined.isox file for multiple acquisitions
 #'
-#' @param df =data frame of isox data table output
-#' @param ranges = data frame of .txt file with start and end times for the peak of interest in each measurement run
-#' @param masses = dataframe of isotopologs.tsv file which was also used to generate the .isox file
-#' @param ions = vector which contains all fragments/ions of interest
-#' @param ilogs = vector of isotopologs of interest (has to be contained in isotopologs.tsv file)
-#' @return = dataframe only containing columns for further analysis i.e. time ranges for each acquisition, filter for fragments/ions of interest and isotopologs of interest and mass defect value.
+#' @param x data frame of isox data table output
+#' @param ranges data frame of .txt file with start and end times for the peak of interest in each measurement run
+#' @param masses dataframe of isotopologs.tsv file which was also used to generate the .isox file
+#' @param ions vector which contains all fragments/ions of interest
+#' @param ilogs vector of isotopologs of interest (has to be contained in isotopologs.tsv file)
+#' @return dataframe only containing columns for further analysis i.e. time ranges for each acquisition, filter for fragments/ions of interest and isotopologs of interest and mass defect value.
 #' @examples
 
 #-------------
 #' @export
-import.Idata <- function(df,ranges,masses,ions,ilogs){
+import.Idata <- function(x,ranges,masses,ions,ilogs){
 
   #reformatting
-  data= df
+  data= x
   colnames(masses)=c("compound","isotopolog","m/z", "tolerance [mmu]", "z")
   data= merge(data,masses[,c(1:3)], by=c("compound","isotopolog")) #append data.frame with exact masses for fragments
   data= merge (data, ranges, by= "filename", all.x=T, all.y=T) #append data.frame with start and end times for acquisition
