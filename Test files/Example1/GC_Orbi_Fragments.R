@@ -18,7 +18,7 @@
 #------------
 
 # Input
-df= read.table("combined.isox", header=TRUE)
+df= read.table("combined.isox", header=TRUE) # couldnt upload this combined.isox in repository b/c too large contact me @ m.oeztoprak@gmail.com to recieve the testfile
 #supply a table (read.csv...header=TRUE) with column names: filename, start.min, end.min
 ranges= read.csv("peak_times.csv", header=TRUE)
 # mass tolerance for mass assignment in daltons
