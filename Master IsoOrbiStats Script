@@ -63,9 +63,6 @@ import.Idata <- function(x,ranges,masses,ions,ilogs){
              data$compound %in% ions & #only include scans with fragments/ions of interest i.e. C6H13 fragment
              data$isotopolog %in% ilogs #only include scans with isotopologs of interest i.e. C6H13 fragment with 12C (unsubstituted) and 1data13C
     ) %>%
-    group_by(filename, compound, isotopolog) %>%
-    mutate(Nio_weighted = (Nio*intensity)/sum(intensity),.after = Nio # weighted Nio according to Eiler lab meeting
-    )%>%
     ungroup() %>%
     group_by(filename, scan.no, time.min, compound, isotopolog) %>% # rank duplicate isotopolog (assigned b/c mass match) in same scan based on signal intensity
     mutate(num_dups = n(), rank= rank(-intensity),
@@ -81,7 +78,7 @@ import.Idata <- function(x,ranges,masses,ions,ilogs){
   data = data[,c("filename","compound","isotopolog","scan.no","time.min","intensity","ions.incremental",
                  "tic","it.ms","ticxit","resolution","peakResolution","peakNoise","basePeakIntensity","rawOvFtT",
                  "intensCompFactor","agc","agcTarget","microscans","numberLockmassesFound","analyzerTemperature",
-                 "start.min","end.min","mzMeasured","m/z","massdefect[da]","Nio","Nio_weighted",
+                 "start.min","end.min","mzMeasured","m/z","massdefect[da]","Nio",
                  "num_dups","rank","is_duplicated","num_ilogs","has_all_ilogs")]#reorder columns
 }
 
@@ -94,7 +91,7 @@ import.Idata <- function(x,ranges,masses,ions,ilogs){
 filter.Idata <- function (x, tolerance){
 
   #filter and remove columnes used to filter dataset
-  mdf=x[x$"massdefect[da]" <tolerance,] #removes rows with mass deferct larger then defined tolerance value in daltons
+  mdf=x[x$"massdefect[da]" <tolerance,] #removes rows with mass defect larger then defined tolerance value in daltons
   is=mdf[mdf$rank == "1",] #removes rows assigned in duplicate to same isotopolog (in same scan) by keeping only the one with higher signal intensity
   filtered=is[is$has_all_ilogs == "TRUE",] #removes rows that do not contain the desired number of isotopologs in ilogs object
   filtered=filtered[,c(1:28)]#removes columns used for filtering
@@ -108,26 +105,29 @@ filter.Idata <- function (x, tolerance){
     group_by(filename,compound,isotopolog)%>%
     top_n(4,time.min)%>%
     mutate(Nio_avrg4_background = mean(Nio),
-           Nio_w_avrg4_background = mean(Nio_weighted))
+           NL_avrg4_background = mean(intensity))
   b=b%>% # background calculation method 2
     group_by(filename,compound,isotopolog)%>%
     top_n(20,time.min)%>%
     mutate(Nio_min20_background = min(Nio),
-           Nio_w_min20_background = min(Nio_weighted))
-  data_merged=merge(filtered,b[,c("filename","compound","isotopolog","Nio_avrg4_background","Nio_min20_background","Nio_w_avrg4_background","Nio_w_min20_background")], by=c("filename","compound","isotopolog"))
-
+           NL_min20_background = min(intensity))
+  data_merged=merge(filtered,b[,c("filename","compound","isotopolog","Nio_avrg4_background","Nio_min20_background","NL_avrg4_background","NL_min20_background")],
+                    by=c("filename","compound","isotopolog"))
   #filter to only include rows within defined peak elution time
   data_out = data_merged%>%
     filter(time.min <= end.min & time.min >= start.min)
   data_out = distinct(data_out)
-
+  # add weighted Nio according to Eiler lab meeting
+  data_out= data_out %>%
+    group_by(filename, compound, isotopolog) %>%
+    mutate(Nio_weighted = (Nio*intensity)/sum(intensity),.after = Nio
+    )
   #add columns with background subtracted
   data_out = data_out %>%
     mutate(Nio_b.avrg4 = Nio - Nio_avrg4_background,
            Nio_b.min20 = Nio - Nio_min20_background,
-           Nio_w_b.min20 = Nio - Nio_w_min20_background,
-           Nio_w_b.avrg4 = Nio - Nio_w_avrg4_background)
-
+           Nio_b.avrg4_2 = ((intensity-NL_avrg4_background)/peakNoise)*(4.4 /1)*((120000/resolution)^0.5)*(microscans^0.5),
+           Nio_b.min20_2 = ((intensity-NL_min20_background)/peakNoise)*(4.4 /1)*((120000/resolution)^0.5)*(microscans^0.5))
   return(data_out)
 }
 
@@ -145,35 +145,57 @@ I.ratios <- function(x){
   data_ratios = data_ratios %>% #split dataframe by filename/compound/isotopologs and combine isotpolgs by matching filename and scan.no to get isotopologs in same row aligned by same scan number and filename
     group_by(filename, compound, isotopolog) %>%
     split(.$isotopolog)%>%
-    lapply(function(x) x[(names(x) %in% c("filename","compound","scan.no","time.min","isotopolog","tic","it.ms","ticxit",
-                                          "massdefect[da]","intensity","Nio","Nio_weighted","Nio_b.avrg4","Nio_b.min20",
-                                          "Nio_w_b.avrg4","Nio_w_b.min20"))])%>%
+    lapply(function(x) x[(names(x) %in% c("filename","compound","scan.no","time.min","isotopolog","tic","it.ms","ticxit","peakNoise",
+                                          "massdefect[da]","intensity","Nio","Nio_weighted",
+                                          "Nio_avrg4_background","Nio_min20_background","NL_avrg4_background","NL_min20_background",
+                                          "Nio_b.avrg4","Nio_b.min20","Nio_b.avrg4_2","Nio_b.min20_2"))])%>%
     lapply(function(i) i[order(i$filename,i$scan.no),])%>%
     as.data.frame()%>% #this is the reason the script only works with 2 isotopologs
     mutate(NL_ratio = X1.intensity/X0.intensity, #NL ratio
            Nio_ratio = X1.Nio/X0.Nio, #Nio ratio
            Nio_w_ratio = X1.Nio_weighted/X0.Nio_weighted, #Nio weighted ratio
            Nio_b.avrg4_ratio = X1.Nio_b.avrg4/X0.Nio_b.avrg4, #Nio_b.avrg4 ratio
-           Nio_w_b.avrg4_ratio = X1.Nio_w_b.avrg4/X0.Nio_w_b.avrg4, #Nio_b.avrg4 weighted ratio
            Nio_b.min20_ratio = X1.Nio_b.min20/X0.Nio_b.min20, #Nio_b.avrg4 ratio
-           Nio_w_b.min20_ratio = X1.Nio_w_b.min20/X0.Nio_w_b.min20) #Nio_b.avrg4 weighted ratio
+           Nio_b.avrg4_ratio_2 = X1.Nio_b.avrg4_2/X0.Nio_b.avrg4_2, #Nio_b.avrg4 ratio calculated via NL
+           Nio_b.min20_ratio_2 = X1.Nio_b.min20_2/X0.Nio_b.min20_2) #Nio_b.avrg4 ratio calcualted via NL
   data_out=data_ratios
   #background subtraction creates negative values (interestingly no neg values for background subtracted values using Nio_weighted) replace with NA
+  is.na(data_out$X1.Nio_b.avrg4) <- data_out$X1.Nio_b.avrg4 < 0
+  is.na(data_out$X0.Nio_b.avrg4) <- data_out$X0.Nio_b.avrg4 < 0
+  is.na(data_out$X1.Nio_b.min20) <- data_out$X1.Nio_b.min20 < 0
+  is.na(data_out$X0.Nio_b.min20) <- data_out$X0.Nio_b.min20 < 0
+
+  is.na(data_out$X1.Nio_b.avrg4_2) <- data_out$X1.Nio_b.avrg4_2 < 0
+  is.na(data_out$X0.Nio_b.avrg4_2) <- data_out$X0.Nio_b.avrg4_2 < 0
+  is.na(data_out$X1.Nio_b.min20_2) <- data_out$X1.Nio_b.min20_2 < 0
+  is.na(data_out$X0.Nio_b.min20_2) <- data_out$X0.Nio_b.min20_2 < 0
+
   is.na(data_out$Nio_b.avrg4_ratio) <- data_out$Nio_b.avrg4_ratio < 0
   is.na(data_out$Nio_b.min20_ratio) <- data_out$Nio_b.min20_ratio < 0
+  is.na(data_out$Nio_b.avrg4_ratio_2) <- data_out$Nio_b.avrg4_ratio_2 < 0
+  is.na(data_out$Nio_b.min20_ratio_2) <- data_out$Nio_b.min20_ratio_2 < 0
   data_out %>%
-    select(X0.filename,X0.compound,X0.scan.no,X0.time.min,X0.tic,X0.it.ms,X0.ticxit,X0.intensity,X1.intensity,
+    select(X0.filename,X0.compound,X0.scan.no,X0.time.min,X0.tic,X0.it.ms,X0.ticxit,
+           X0.peakNoise,X1.peakNoise,X0.intensity,X1.intensity,
            X0.Nio,X1.Nio,X0.Nio_weighted,X1.Nio_weighted,
+           X0.Nio_avrg4_background,X1.Nio_avrg4_background,X0.Nio_min20_background,X1.Nio_min20_background,
+           X0.NL_avrg4_background,X1.NL_avrg4_background,X0.NL_min20_background,X1.NL_min20_background,
            X0.Nio_b.avrg4,X1.Nio_b.avrg4,X0.Nio_b.min20,X1.Nio_b.min20,
-           X0.Nio_w_b.avrg4,X1.Nio_w_b.avrg4,X0.Nio_w_b.min20,X1.Nio_w_b.min20,
-           NL_ratio,Nio_ratio,Nio_w_ratio,Nio_b.avrg4_ratio,Nio_w_b.avrg4_ratio,Nio_b.min20_ratio,Nio_w_b.min20_ratio)%>%
+           X0.Nio_b.avrg4_2,X1.Nio_b.avrg4_2,X0.Nio_b.min20_2,X1.Nio_b.min20_2,
+           NL_ratio,Nio_ratio,Nio_w_ratio,Nio_b.avrg4_ratio,Nio_b.min20_ratio,Nio_b.avrg4_ratio_2,Nio_b.min20_ratio_2)%>%
     rename(filename=X0.filename,compound=X0.compound,scan.no=X0.scan.no,time.min=X0.time.min,tic=X0.tic,it.ms=X0.it.ms,ticxit=X0.ticxit,
-           unsub.intensity=X0.intensity,sub.intensity=X1.intensity,unsub.Nio=X0.Nio,sub.Nio=X1.Nio,
+           unsub.peakNoise=X0.peakNoise,sub.peakNoise=X1.peakNoise,
+           unsub.intensity=X0.intensity,sub.intensity=X1.intensity,
+           unsub.Nio=X0.Nio,sub.Nio=X1.Nio,
            unsub.Nio_weighted=X0.Nio_weighted,sub.Nio_weighted=X1.Nio_weighted,
+           unsub.Nio_avrg4_background=X0.Nio_avrg4_background,sub.Nio_avrg4_background=X1.Nio_avrg4_background,
+           unsub.Nio_min20_background=X0.Nio_min20_background,sub.Nio_min20_background=X1.Nio_min20_background,
+           unsub.NL_avrg4_background=X0.NL_avrg4_background,sub.NL_avrg4_background=X1.NL_avrg4_background,
+           unsub.NL_min20_background=X0.NL_min20_background,sub.NL_min20_background=X1.NL_min20_background,
            unsub.Nio_b.avrg4=X0.Nio_b.avrg4,sub.Nio_b.avrg4=X1.Nio_b.avrg4,
            unsub.Nio_b.min20=X0.Nio_b.min20,sub.Nio_b.min20=X1.Nio_b.min20,
-           unsub.Nio_w_b.avrg4=X0.Nio_w_b.avrg4, sub.Nio_w_b.avrg4=X1.Nio_w_b.avrg4,
-           unsub.Nio_w_b.min20=X0.Nio_w_b.min20,sub.Nio_w_b.min20=X1.Nio_w_b.min20)#reduce and rename columns
+           unsub.Nio_b.avrg4_2=X0.Nio_b.avrg4_2,sub.Nio_b.avrg4_2=X1.Nio_b.avrg4_2,
+           unsub.Nio_b.min20_2=X0.Nio_b.min20_2,sub.Nio_b.min20_2=X1.Nio_b.min20_2)#reduce and rename columns
 }
 
 #output
@@ -185,8 +207,10 @@ I.ratios <- function(x){
 #used to evaluate differnt culling options
 #culled using ticxit
 
-cull.Idata <- function(x,cullvalue,ratio,it){ #better to do per filename and/or ion of interest b/c output becomes too large background subtracted columns becaome inaccurate because negative values have to be NA
+cull.Idata <- function(x,cullvalue,ratio,trim){ #better to do per filename and/or ion of interest b/c output becomes too large background subtracted columns becaome inaccurate because negative values have to be NA
   data= x
+  data = data %>%
+    drop_na({{cullvalue}})
   options(dplyr.summarise.inform = FALSE)  # Suppress summarise info
   data_0 = data %>%#----
   mutate(filter="no filter")
@@ -203,10 +227,26 @@ cull.Idata <- function(x,cullvalue,ratio,it){ #better to do per filename and/or 
       RSD= sd({{ratio}})/mean({{ratio}})*100,
       RSE=se/mean({{ratio}})*100,
     )
+  data_trim = data %>% #----
+  mutate(filter="trim") %>%
+    group_by(filename, compound) %>%
+    filter(scan.no >= {{trim}}) # filter dataset to only include rows that are larger then a user defined inital scan.no
+  summary_trim = data_trim  %>%
+    group_by(filename, compound) %>%
+    summarise(
+      filter="trim",
+      mean = mean({{ratio}}),
+      median = median({{ratio}}),
+      n = n(),
+      sd = sd({{ratio}}),
+      se = sd / sqrt(n),
+      RSD= sd({{ratio}})/mean({{ratio}})*100,
+      RSE=se/mean({{ratio}})*100,
+    )
   data_it = data %>% #----
   mutate(filter="it") %>%
     group_by(filename, compound) %>%
-    filter(it.ms >= it) # filter dataset to only include rows that are <set "it" value to ensure constant AGC target
+    filter(it.ms <= it.ms[which.max(time.min)]) # filter dataset to only include rows that are <= final time.min it.ms value
   summary_it = data_it  %>%
     group_by(filename, compound) %>%
     summarise(
@@ -317,12 +357,12 @@ cull.Idata <- function(x,cullvalue,ratio,it){ #better to do per filename and/or 
       RSE=se/mean({{ratio}})*100,
     )
   #----
-  summary_data=rbind(summary_0,summary_it,summary_sd1,summary_sd2,summary_sd3,summary_MAD10,summary_MAD20)
+  summary_data=rbind(summary_0,summary_trim,summary_it,summary_sd1,summary_sd2,summary_sd3,summary_MAD10,summary_MAD20)
   summary_data= summary_data %>%
     group_by(filename, compound) %>%
     slice(which.min(RSE))
-  outList= list(data_0,data_it,data_sd1,data_sd2,data_sd3,data_MAD10,data_MAD20,summary_data)
-  names(outList) <- c("no_filter","it","1sd","2sd","3sd","MAD10","MAD20","summary_data")
+  outList= list(data_0,data_trim,data_it,data_sd1,data_sd2,data_sd3,data_MAD10,data_MAD20,summary_data)
+  names(outList) <- c("no_filter","trim","it","1sd","2sd","3sd","MAD10","MAD20","summary_data")
   return(outList)
 }
 
@@ -343,18 +383,36 @@ avrg.ratios <- function(x,ions,n.atoms){
                     "unsub.Nio","sub.Nio",
                     "unsub.Nio_weighted","sub.Nio_weighted",
                     "unsub.Nio_b.avrg4","sub.Nio_b.avrg4",
-                    "unsub.Nio_b.min20","unsub.Nio_b.min20",
-                    "unsub.Nio_w_b.avrg4","sub.Nio_w_b.avrg4",
-                    "unsub.Nio_w_b.min20","unsub.Nio_w_b.min20",
+                    "unsub.Nio_b.min20","sub.Nio_b.min20",
+                    "unsub.Nio_avrg4_background","sub.Nio_avrg4_background",
+                    "unsub.Nio_min20_background","sub.Nio_min20_background",
+                    "unsub.NL_avrg4_background","sub.NL_avrg4_background",
+                    "unsub.NL_min20_background","sub.NL_min20_background",
                     "NL_ratio","Nio_ratio","Nio_w_ratio",
-                    "Nio_b.avrg4_ratio","Nio_w_b.avrg4_ratio",
-                    "Nio_b.min20_ratio","Nio_w_b.min20_ratio"
+                    "Nio_b.avrg4_ratio","Nio_b.min20_ratio",
+                    "Nio_b.avrg4_ratio_2","Nio_b.min20_ratio_2"
     ),.fns=~./n.atoms))%>%
     relocate(n.atoms,.after=compound)
 }
 
 #output
 #dataframe with average ratios for each ratio calculated by division of n.atoms in respective fragment/ion
+
+#delta values
+#transforms all ratios into delta scale
+
+d.ratios <- function(x){
+  data_out = x
+  data_out = data_out %>% #calculate values in delta scale
+    mutate(NL_ratio = ((NL_ratio/0.0112372)-1)*1000,
+           Nio_ratio = ((Nio_ratio/0.0112372)-1)*1000,
+           Nio_w_ratio = ((Nio_w_ratio/0.0112372)-1)*1000,
+           Nio_b.avrg4_ratio = ((Nio_b.avrg4_ratio/0.0112372)-1)*1000,
+           Nio_b.min20_ratio = ((Nio_b.min20_ratio/0.0112372)-1)*1000,
+           Nio_b.avrg4_ratio_2 = ((Nio_b.avrg4_ratio_2/0.0112372)-1)*1000,
+           Nio_b.min20_ratio_2 = ((Nio_b.min20_ratio_2/0.0112372)-1)*1000
+           )
+}
 
 #summary data for different NL ratio calculation options per compound
 #drop NA rows for background subtracted ratios
@@ -368,6 +426,8 @@ s.ratios <- function(avrg.ratios_results){
       ratio = "NL_ratio",
       mean = mean(NL_ratio),
       median = median(NL_ratio),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
       n = n(),
       sd = sd(NL_ratio),
       se = sd / sqrt(n),
@@ -380,6 +440,8 @@ s.ratios <- function(avrg.ratios_results){
       ratio = "Nio_ratio",
       mean = mean(Nio_ratio),
       median = median(Nio_ratio),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
       n = n(),
       sd = sd(Nio_ratio),
       se = sd / sqrt(n),
@@ -392,6 +454,8 @@ s.ratios <- function(avrg.ratios_results){
       ratio = "Nio_w_ratio",
       mean = mean(Nio_w_ratio),
       median = median(Nio_w_ratio),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
       n = n(),
       sd = sd(Nio_w_ratio),
       se = sd / sqrt(n),
@@ -405,24 +469,13 @@ s.ratios <- function(avrg.ratios_results){
       ratio = "Nio_b.avrg4_ratio",
       mean = mean(Nio_b.avrg4_ratio),
       median = median(Nio_b.avrg4_ratio),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
       n = n(),
       sd = sd(Nio_b.avrg4_ratio),
       se = sd / sqrt(n),
       RSD= sd(Nio_b.avrg4_ratio)/mean(Nio_b.avrg4_ratio)*100,
       RSE=se/mean(Nio_b.avrg4_ratio)*100
-    )
-  Nio_w_b.avrg4_ratio = data %>%
-    group_by (filename, compound) %>%
-    drop_na(Nio_w_b.avrg4_ratio)%>%
-    summarise(
-      ratio = "Nio_w_b.avrg4_ratio",
-      mean = mean(Nio_w_b.avrg4_ratio),
-      median = median(Nio_w_b.avrg4_ratio),
-      n = n(),
-      sd = sd(Nio_w_b.avrg4_ratio),
-      se = sd / sqrt(n),
-      RSD= sd(Nio_w_b.avrg4_ratio)/mean(Nio_w_b.avrg4_ratio)*100,
-      RSE=se/mean(Nio_w_b.avrg4_ratio)*100
     )
   Nio_b.min20_ratio = data %>%
     group_by (filename, compound) %>%
@@ -431,26 +484,45 @@ s.ratios <- function(avrg.ratios_results){
       ratio = "Nio_b.min20_ratio",
       mean = mean(Nio_b.min20_ratio),
       median = median(Nio_b.min20_ratio),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
       n = n(),
       sd = sd(Nio_b.min20_ratio),
       se = sd / sqrt(n),
       RSD= sd(Nio_b.min20_ratio)/mean(Nio_b.min20_ratio)*100,
       RSE=se/mean(Nio_b.min20_ratio)*100
     )
-  Nio_w_b.min20_ratio = data %>%
+  Nio_b.avrg4_ratio_2 = data %>%
     group_by (filename, compound) %>%
-    drop_na(Nio_w_b.min20_ratio)%>%
+    drop_na(Nio_b.avrg4_ratio_2)%>%
     summarise(
-      ratio = "Nio_w_b.min20_ratio",
-      mean = mean(Nio_w_b.min20_ratio),
-      median = median(Nio_w_b.min20_ratio),
+      ratio = "Nio_b.avrg4_ratio_2",
+      mean = mean(Nio_b.avrg4_ratio_2),
+      median = median(Nio_b.avrg4_ratio_2),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
       n = n(),
-      sd = sd(Nio_w_b.min20_ratio),
+      sd = sd(Nio_b.avrg4_ratio_2),
       se = sd / sqrt(n),
-      RSD= sd(Nio_w_b.min20_ratio)/mean(Nio_w_b.min20_ratio)*100,
-      RSE=se/mean(Nio_w_b.min20_ratio)*100
+      RSD= sd(Nio_b.avrg4_ratio_2)/mean(Nio_b.avrg4_ratio_2)*100,
+      RSE=se/mean(Nio_b.avrg4_ratio_2)*100
     )
-  data_out = rbind(NL_ratio,Nio_ratio,Nio_w_ratio,Nio_b.avrg4_ratio,Nio_w_b.avrg4_ratio,Nio_b.min20_ratio,Nio_w_b.min20_ratio)
+  Nio_b.min20_ratio_2 = data %>%
+    group_by (filename, compound) %>%
+    drop_na(Nio_b.min20_ratio_2)%>%
+    summarise(
+      ratio = "Nio_b.min20_ratio_2",
+      mean = mean(Nio_b.min20_ratio_2),
+      median = median(Nio_b.min20_ratio_2),
+      unsub.int = mean(unsub.intensity),
+      sub.int = mean(sub.intensity),
+      n = n(),
+      sd = sd(Nio_b.min20_ratio_2),
+      se = sd / sqrt(n),
+      RSD= sd(Nio_b.min20_ratio_2)/mean(Nio_b.min20_ratio_2)*100,
+      RSE=se/mean(Nio_b.min20_ratio_2)*100
+    )
+  data_out = rbind(NL_ratio,Nio_ratio,Nio_w_ratio,Nio_b.avrg4_ratio,Nio_b.min20_ratio,Nio_b.avrg4_ratio_2,Nio_b.min20_ratio_2)
   return(data_out)
 }
 
